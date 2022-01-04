@@ -1,0 +1,133 @@
+#include "Arduino.h"
+#include "hardware/pwm.h"
+
+
+// One full rotation gives off 2 Hertz
+// 1 RPS (60 RPM) means 2 Hertz
+// Therefore:
+// (60 RPM/RPS) / (2 Hertz/RPS) = 30 Hz/RPM
+// RPM = Hz * 30
+#define HERTZ_TO_RPM_FACTOR 30
+
+#include "SPI.h"
+#include "Wire.h"
+#include "Adafruit_SSD1306.h"
+#include "Adafruit_GFX.h"
+#include "hardware/i2c.h"
+
+#define SQUARE_SIGNAL_INPUT_PIN 21
+#define FAN_CONTROL_SIGNAL_PIN 22
+#define MEASURE_TIME_MSEC 1000
+#define MEASUREMENT_FREQ_TO_SECONDS_FACTOR 1000/MEASURE_TIME_MSEC
+
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+
+int16_t original_cursor_x;
+int16_t original_cursor_y;
+
+void fan_setup() {
+    i2c_init(i2c_default, 100 * 1000);
+    gpio_set_function(PICO_DEFAULT_I2C_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(PICO_DEFAULT_I2C_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(PICO_DEFAULT_I2C_SDA_PIN);
+    gpio_pull_up(PICO_DEFAULT_I2C_SCL_PIN);
+
+    gpio_pull_up(SQUARE_SIGNAL_INPUT_PIN);
+
+    Serial1.begin();
+
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+        Serial1.println(F("SSD1306 allocation failed"));
+        for (;;); // Don't proceed, loop forever
+    }
+    display.cp437(true);
+    original_cursor_x = display.getCursorX();
+    original_cursor_y = display.getCursorY();
+
+}
+uint PWM_cycles = 500;
+void generate_pwm(int gpio_pin, float pwm_percent) {
+    bool initiated = (gpio_get_function(gpio_pin) == GPIO_FUNC_PWM);
+    if (!initiated) {
+//        pin_init(gpio_pin);
+        gpio_set_function(gpio_pin, GPIO_FUNC_PWM);
+        initiated = true;
+        Serial1.printf("Pin %d has been set to %f percent\n", gpio_pin, pwm_percent);
+        uint square_signal_pin_slice = pwm_gpio_to_slice_num(gpio_pin);
+        Serial1.printf("Pin %d belongs to slice # %d\n", gpio_pin, square_signal_pin_slice);
+        pwm_set_clkdiv(square_signal_pin_slice, 256); // Max divider of 256
+        pwm_set_wrap(square_signal_pin_slice, PWM_cycles - 1);
+    }
+    uint square_signal_pin_slice = pwm_gpio_to_slice_num(gpio_pin);
+    pwm_set_chan_level(square_signal_pin_slice, PWM_CHAN_A, int(PWM_cycles * pwm_percent));
+    pwm_set_chan_level(square_signal_pin_slice, PWM_CHAN_B, int(PWM_cycles - (PWM_cycles * pwm_percent)));
+    Serial1.printf("Pin %d is set to %d on %d off out of %d ticks\n", gpio_pin, int(PWM_cycles * pwm_percent), int(PWM_cycles - (PWM_cycles * pwm_percent)), PWM_cycles);
+    pwm_set_enabled(square_signal_pin_slice, true);
+    if (!initiated) {
+        Serial1.printf("Pin %d is now enabled\n", gpio_pin);
+    }
+}
+
+float measure_frequency(int gpio_pin) {
+    // Only the PWM B pins can be used as inputs.
+    assert(pwm_gpio_to_channel(gpio_pin) == PWM_CHAN_B);
+    uint slice_num = pwm_gpio_to_slice_num(gpio_pin);
+    pwm_config cfg = pwm_get_default_config();
+    pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
+    pwm_init(slice_num, &cfg, false);
+    gpio_set_function(gpio_pin, GPIO_FUNC_PWM);
+
+    pwm_set_enabled(slice_num, true);
+    sleep_ms(MEASURE_TIME_MSEC);
+    pwm_set_enabled(slice_num, false);
+    float input_signal_frequency = float(pwm_get_counter(slice_num)) * MEASUREMENT_FREQ_TO_SECONDS_FACTOR;
+    return input_signal_frequency;
+}
+
+float measure_duty_cycle(int gpio_pin) {
+    // Only the PWM B pins can be used as inputs.
+    assert(pwm_gpio_to_channel(gpio_pin) == PWM_CHAN_B);
+    uint slice_num = pwm_gpio_to_slice_num(gpio_pin);
+
+    // Count once for every 100 cycles the PWM B input is high
+    pwm_config cfg = pwm_get_default_config();
+    pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_HIGH);
+    pwm_config_set_clkdiv(&cfg, 100);
+    pwm_init(slice_num, &cfg, false);
+    gpio_set_function(gpio_pin, GPIO_FUNC_PWM);
+
+    pwm_set_enabled(slice_num, true);
+    sleep_ms(10);
+    pwm_set_enabled(slice_num, false);
+    float counting_rate = clock_get_hz(clk_sys) / 100;
+    float max_possible_count = counting_rate * 0.01;
+    return pwm_get_counter(slice_num) / max_possible_count;
+}
+
+int frequency;
+int rpm;
+
+void fan_loop() {
+    generate_pwm(FAN_CONTROL_SIGNAL_PIN, 0.5);
+//    digitalWrite(LED_BUILTIN, digitalRead(SQUARE_SIGNAL_INPUT_PIN));
+//    sleep_ms(1);
+    frequency = int(measure_frequency(SQUARE_SIGNAL_INPUT_PIN));
+    rpm = frequency * HERTZ_TO_RPM_FACTOR;
+    Serial1.println(frequency);
+    display.clearDisplay();
+    display.setCursor(original_cursor_x, original_cursor_y);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setTextSize(2, 2);
+
+    display.printf("f:%dHz\n", int(frequency));
+    display.printf("RPM:%d\n", int(rpm));
+    display.display();
+
+    sleep_ms(200);
+}
