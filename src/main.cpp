@@ -23,7 +23,7 @@ void loop();
 #define MOSI_PIN 3  // SDI input of MCP2515
 #define MISO_PIN 4  // SDO output of MCP2517
 #define CS_PIN 5    // CS input of MCP2515 (adapt to your design)
-APICan can_object(INT_PIN, 20000000UL);
+APICan can_object(CS_PIN, INT_PIN,  20000000UL, &SERIAL_TO_USE);
 
 void setup() {
   APICan::setSPI(SCK_PIN, MOSI_PIN, MISO_PIN, CS_PIN);
@@ -40,12 +40,13 @@ void setup() {
     delay(50);
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
   }
-
-  can_object.configure_chip(SERIAL_TO_USE);
+  can_object.init();
+  can_object.configure_chip();
 }
 
 void loop() {
   int64_t message = millis();
-  can_object.send_message(1, message, SERIAL_TO_USE);
+  can_object.send_message(1, message);
+  can_object.read_messages();
   sleep_ms(200);
 }

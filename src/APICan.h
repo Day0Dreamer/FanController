@@ -11,21 +11,29 @@ private:
   uint32_t gReceivedFrameCount = 0;
   uint32_t gSentFrameCount = 0;
 
-  byte CS_PIN = 0;
-  byte INT_PIN = 0;
-  uint QUARTZ_FREQUENCY = 20000000UL;
+  uint32_t quartz_frequency;
+  Print* debugOutput;
+  byte int_pin;
 
 public:
-  APICan(byte interrupt, uint32_t quartz_frequency);
-  ACAN2515 can = ACAN2515(CS_PIN, SPI, INT_PIN);
+  //constructor accepts CS and INT pins, default value of 20MHz for quartz, but explicit value can
+  //be given, too.
+  APICan(byte CS_PIN, byte INT_PIN, uint32_t quartz_frequency = 20000000UL, Print* debugOutput = &Serial);
+  ACAN2515 can;
 
-  void send_message(int id, int data, SerialUART SerialPort);
+  static void can_isr_routine();
+  static ACAN2515* pCan;
 
-  static void setSPI(unsigned char sck, unsigned char mosi,
+  void send_message(int id, int data);
+
+  void init();
+
+ static void setSPI(unsigned char sck, unsigned char mosi,
                      unsigned char miso, unsigned char cs);
 
-  void configure_chip(SerialUART SerialPort);
-  void read_messages(SerialUART SerialPort);
+  void configure_chip();
+  void read_messages();
+
 };
 
 #endif // FANCONTROLLER_APICAN_H
