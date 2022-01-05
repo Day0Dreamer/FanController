@@ -23,18 +23,8 @@
 #include "Arduino.h"
 #include <ACAN2515.h>
 #include "SPI.h"
-//#include "SerialUART.h"
 
-//——————————————————————————————————————————————————————————————————————————————
-// The Pico has two SPI peripherals, SPI and SPI1. Either (or both) can be used.
-// The are no default pin assignments to these must be set explicitly.
-// At the time of writing (Apr 2021) there is no official Arduino core for the Pico
-// Testing was done with Earle Philhower's arduino-pico core:
-// https://github.com/earlephilhower/arduino-pico
-// There is a small bug in release 1.0.3 so you will require at least 1.0.4
-//——————————————————————————————————————————————————————————————————————————————
-
-static const byte MCP2515_INT = 20    ;  // INT output of MCP2515 (adapt to your design)
+static const byte MCP2515_INT = 255    ;  // INT output of MCP2515 (adapt to your design)
 static const byte MCP2515_SCK  = 2 ; // SCK input of MCP2515
 static const byte MCP2515_MOSI = 3 ; // SDI input of MCP2515
 static const byte MCP2515_MISO = 4 ; // SDO output of MCP2517
@@ -50,7 +40,7 @@ ACAN2515 can (MCP2515_CS, SPI, MCP2515_INT) ;
 //  MCP2515 Quartz: adapt to your design
 //——————————————————————————————————————————————————————————————————————————————
 
-static const uint32_t QUARTZ_FREQUENCY = 8UL * 1000UL * 1000UL ; // 8 MHz
+static const uint32_t QUARTZ_FREQUENCY = 20UL * 1000UL * 1000UL ; // 8 MHz
 
 //——————————————————————————————————————————————————————————————————————————————
 //   SETUP
@@ -86,8 +76,9 @@ void setup () {
     //--- Configure ACAN2515
     SERIAL_TO_USE.println ("Configure ACAN2515") ;
     ACAN2515Settings settings (QUARTZ_FREQUENCY, 125UL * 1000UL) ; // CAN bit rate 125 kb/s
-    settings.mRequestedMode = ACAN2515Settings::LoopBackMode ; // Select loopback mode
-    const uint16_t errorCode = can.begin (settings, [] { can.isr () ; }) ;
+    settings.mRequestedMode = ACAN2515Settings::NormalMode ; // Select loopback mode
+    const uint16_t errorCode = can.begin (settings, nullptr) ;
+//    const uint16_t errorCode = can.begin (settings, [] { can.isr () ; }) ;
     sleep_ms(500);
     if (errorCode == 0) {
         SERIAL_TO_USE.print ("Bit Rate prescaler: ") ;
@@ -125,23 +116,33 @@ static uint32_t gSentFrameCount = 0 ;
 //——————————————————————————————————————————————————————————————————————————————
 
 void loop () {
-    sleep_ms(500);
-    CANMessage frame ;
+    can.poll();
+//    sleep_ms(500);
+     //
+    CANMessage frame {};
+    frame.id = 0x12; //id 0x12
+    frame.ext = false; //not an extended frame
+    frame.len = 8; // 2 user bytes
+    frame.data_s64 = millis();
+//    frame.data[1] = 0xf0;
+    // //
     if (gBlinkLedDate < millis ()) {
         gBlinkLedDate += 200 ;
-        digitalWrite (LED_BUILTIN, !digitalRead (LED_BUILTIN)) ;
+        digitalWrite (LED_BUILTIN, 1) ;
         const bool ok = can.tryToSend (frame) ;
         if (ok) {
             gSentFrameCount += 1 ;
             SERIAL_TO_USE.print ("Sent from 2040 frame : #") ;
             SERIAL_TO_USE.println (gSentFrameCount) ;
+        digitalWrite (LED_BUILTIN, 0) ;
         } else {
             SERIAL_TO_USE.println ("Send failure") ;
         }
     }
-    sleep_ms(500);
+//    sleep_ms(500);
 //    CANMessage frame ;
     if (can.available ()) {
+        digitalWrite (LED_BUILTIN, 1) ;
         can.receive (frame) ;
         gReceivedFrameCount ++ ;
         SERIAL_TO_USE.print ("Received from Arduino value of: ") ;
@@ -151,8 +152,9 @@ void loop () {
         SERIAL_TO_USE.print (" with: #") ;
         SERIAL_TO_USE.println (gReceivedFrameCount) ;
         sleep_ms(10);
-    } else {
-        SERIAL_TO_USE.println("Can BUS is not available for reading");
+        digitalWrite (LED_BUILTIN, 0) ;
+//    } else {
+//        SERIAL_TO_USE.println("Can BUS is not available for reading");
     }
 }
 
