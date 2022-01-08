@@ -76,15 +76,18 @@ void APICan::configure_chip() { //hm meeh extra den Serial port als argument.. b
 
 // APICan::~APICan() = default;
 
-void APICan::send_message(int id, int data) {
+void APICan::send_message(int id, uint8_t data[8]) {
   can.poll();
   CANMessage frame{};
-  frame.id = 0x12;   // id 0x12
-  frame.ext = false; // not an extended frame
-  frame.len = 8;     // 2 user bytes
-  frame.data_s64 = millis();
-  if (gBlinkLedDate < millis()) {
-    gBlinkLedDate += 200;
+  frame.id = id;   // id 0x000000
+  frame.ext = true; // not an extended frame
+  frame.len = 8;     // 8 user bytes
+  // Move all 8 bytes from input to the frame
+  for(auto i=0; i < 8; ++i){
+    frame.data[i] = data[i];
+  }
+//  if (gBlinkLedDate < millis()) {
+//    gBlinkLedDate += 200;
     digitalWrite(LED_BUILTIN, 1);
     const bool ok = can.tryToSend(frame);
     if (ok) {
@@ -95,7 +98,7 @@ void APICan::send_message(int id, int data) {
     } else {
       debugOutput->println("Send failure");
     }
-  }
+//  }
 }
 
 void APICan::read_messages() {
