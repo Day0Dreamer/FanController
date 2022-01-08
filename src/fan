@@ -20,15 +20,15 @@
 #define MEASURE_TIME_MSEC 1000
 #define MEASUREMENT_FREQ_TO_SECONDS_FACTOR 1000/MEASURE_TIME_MSEC
 
-#define SCREEN_WIDTH 128 // OLED display width, in pixels
-#define SCREEN_HEIGHT 64 // OLED display height, in pixels
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+  #define SCREEN_WIDTH 128 // OLED display width, in pixels
+  #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+  #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+  #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+  Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
-int16_t original_cursor_x;
-int16_t original_cursor_y;
+  int16_t original_cursor_x;
+  int16_t original_cursor_y;
 
 void fan_setup() {
     i2c_init(i2c_default, 100 * 1000);
