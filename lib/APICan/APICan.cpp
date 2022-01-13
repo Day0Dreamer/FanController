@@ -1,7 +1,7 @@
 #include "APICan.h"
 #include "Arduino.h"
 #include "SPI.h"
-#include <ACAN2515.h>
+#include "ACAN2515.h"
 
 ACAN2515* APICan::pCan = nullptr;
 

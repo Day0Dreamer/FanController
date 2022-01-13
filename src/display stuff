@@ -1,0 +1,43 @@
+#include "Adafruit_SSD1306.h"
+#include "Adafruit_GFX.h"
+#include "hardware/i2c.h"
+
+  #define SCREEN_WIDTH 128 // OLED display width, in pixels
+  #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+  #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+  #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+  Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+
+  int16_t original_cursor_x;
+  int16_t original_cursor_y;
+
+setup(){
+
+    i2c_init(i2c_default, 100 * 1000);
+    gpio_set_function(PICO_DEFAULT_I2C_SDA_PIN, GPIO_FUNC_I2C);
+    gpio_set_function(PICO_DEFAULT_I2C_SCL_PIN, GPIO_FUNC_I2C);
+    gpio_pull_up(PICO_DEFAULT_I2C_SDA_PIN);
+    gpio_pull_up(PICO_DEFAULT_I2C_SCL_PIN);
+
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+        Serial1.println(F("SSD1306 allocation failed"));
+        for (;;); // Don't proceed, loop forever
+    }
+    display.cp437(true);
+    original_cursor_x = display.getCursorX();
+    original_cursor_y = display.getCursorY();
+    }
+loop(){
+    display.clearDisplay();
+    display.setCursor(original_cursor_x, original_cursor_y);
+    display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+    display.setTextSize(2, 2);
+
+    display.printf("f:%dHz\n", int(frequency));
+    display.printf("RPM:%d\n", int(rpm));
+    display.display();
+
+
+}
