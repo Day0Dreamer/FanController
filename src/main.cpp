@@ -1,6 +1,9 @@
 #include <APICan.h>
 #include <APIFan.h>
 
+// todo: Clean up the code
+// todo: Make PWM Generation start by alarm
+// todo: Make RPM readout start by alarm
 
 #define NO_USB
 #ifdef NO_USB
@@ -79,8 +82,8 @@ uint8_t cnt = 0;
 
 uint8_t buffer;
 
-double temp_duty_cycle = .75;
-void read_input(double& temp_duty_cycle) {
+float temp_duty_cycle_main = .75;
+int read_input(float &temp_duty_cycle) {
   if (SERIAL_TO_USE.available()) {
     buffer = SERIAL_TO_USE.read();
     if (buffer == '`') {
@@ -101,12 +104,17 @@ void read_input(double& temp_duty_cycle) {
     else if (buffer == '=') {
       temp_duty_cycle += 0.01;
     }
+    else if (buffer == 'f') {
+      read_all_fans();
+      return 0;
+    }
+    set_all_fans_to(temp_duty_cycle);
     if (buffer == '\r' || buffer == '\n') {
       SERIAL_TO_USE.print("\n\r");
     }
-    SERIAL_TO_USE.println(temp_duty_cycle);
-
+    SERIAL_TO_USE.printf("All fans has been set to %.2f\r\n",temp_duty_cycle);
   }
+  return 0;
 }
 
 float user_input;
@@ -122,7 +130,7 @@ void loop() {
   //  fan_routine();
   // SERIAL_TO_USE.print(millis());
 //  auto time_start = micros();
-  read_input(temp_duty_cycle);
+  read_input(temp_duty_cycle_main);
 //  auto time_end = micros();
 //  SERIAL_TO_USE.printf("read_input took %d microseconds\r\n", time_end-time_start);
 //  SERIAL_TO_USE.println(temp_duty_cycle);
