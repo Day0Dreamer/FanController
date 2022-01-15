@@ -14,7 +14,7 @@
 // Therefore:
 // (60 RPM/RPS) / (2 Hertz/RPS) = 30 Hz/RPM
 // RPM = Hz * 30
-#define HERTZ_TO_RPM_FACTOR 30
+#define HERTZ_TO_RPM_FACTOR 30.0
 
 #include "Arduino.h"
 #include "SPI.h"
@@ -34,11 +34,18 @@ private:
   u_short rpm{};
   u_short PWM_Control_Pin{};
   u_short RPM_Read_Pin{};
+  u_short MEASURE_TIME_MSEC = 1000;
+  u_short MEASUREMENT_FREQ_TO_SECONDS_FACTOR = 1000 / MEASURE_TIME_MSEC;
+
+  uint32_t start_rpm_measurement_time = 0;
 
 public:
   u_short get_id() { return this->id; }
   u_short get_rpm() { return this->rpm; }
+  uint slice_num = 255;
+
   float get_duty_cycle() { return this->duty_cycle; }
+
   void set_duty_cycle(float duty_cycle_percentage) {
     this->duty_cycle = duty_cycle_percentage;
   }
@@ -51,6 +58,42 @@ public:
     gpio_set_dir(this->PWM_Control_Pin, GPIO_OUT);
 
     gpio_pull_up(this->RPM_Read_Pin);
+    // Only the PWM B pins can be used as inputs.
+    assert(pwm_gpio_to_channel(RPM_Read_Pin) == PWM_CHAN_B);
+    this->slice_num = pwm_gpio_to_slice_num(RPM_Read_Pin);
+    assert(this->slice_num != 255);
+    pwm_config cfg = pwm_get_default_config();
+    pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
+    pwm_init(this->slice_num, &cfg, true);
+    gpio_set_function(RPM_Read_Pin, GPIO_FUNC_PWM);
+  }
+
+  void measure_frequency() {
+    this->slice_num = pwm_gpio_to_slice_num(RPM_Read_Pin); // STUPID CODE
+    // todo: find out why we need to reassign slice number
+    if (this->slice_num == 255)
+      SERIAL_TO_USE.printf("Slice num is 255\r\n");
+    uint32_t time_now = micros();
+    if (time_now < this->start_rpm_measurement_time + 1000000) {
+      //      SERIAL_TO_USE.printf("Now is less than waiting time for end of
+      //      measurement\r\n");
+      //      pwm_set_enabled(this->slice_num, true);
+    } else {
+      //      SERIAL_TO_USE.printf("We should take measurement for the fan
+      //      %i\r\n",
+      //                           this->id);
+      // todo: implement timers instead of blocking sleep
+      //    sleep_ms(MEASURE_TIME_MSEC);
+      pwm_set_enabled(this->slice_num, false); // End measurement
+      float input_signal_frequency = float(pwm_get_counter(this->slice_num)) *
+                                     (float)MEASUREMENT_FREQ_TO_SECONDS_FACTOR;
+      this->set_rpm(input_signal_frequency * (float)HERTZ_TO_RPM_FACTOR);
+      this->start_rpm_measurement_time = time_now;
+      pwm_set_counter(this->slice_num, 0);
+      pwm_set_enabled(this->slice_num, true); // Start measurement
+      //    SERIAL_TO_USE.printf("Fan %i: dc:%f RPM:%i\r\n", this->get_id(),
+      //                         this->get_duty_cycle(), this->get_rpm());
+    }
   }
 
   Fan(ushort PWM_Control_Pin, ushort PWM_RPM_Read_Pin, uint8_t id,
@@ -62,49 +105,24 @@ public:
   }
 };
 
+Fan fan_0(16, 17, 0, 0.075);
 Fan fan_1(18, 19, 1, 0.075);
-Fan fan_2(26, 27, 2, 0.005);
+Fan fan_2(20, 21, 2, 0.075);
 Fan fan_3(6, 7, 3, 0.075);
 Fan fan_4(8, 9, 4, 0.075);
-Fan fan_5(10, 11, 5, 0.075);
+Fan fan_5(10, 11, 5, 0.005);
 Fan fan_6(12, 13, 6, 0.075);
 Fan fan_7(14, 15, 7, 0.075);
-Fan fan_8(16, 17, 8, 0.075);
 
-std::vector FanArray = {fan_1, fan_2, fan_3, fan_4, fan_5, fan_6, fan_7, fan_8};
+std::vector FanArray = {fan_0, fan_1,fan_2, fan_3, fan_4, fan_5, fan_6, fan_7};
 
 void fan_setup() {
-  fan_1.init_gpio();
-  fan_2.init_gpio();
-  fan_3.init_gpio();
-  fan_4.init_gpio();
-  fan_5.init_gpio();
-  //  fan_6.init_gpio();
-  fan_7.init_gpio();
-  fan_8.init_gpio();
-  // If Serial is not initialized, initialize it
+  for (auto &fan : FanArray) fan.init_gpio();
+
+// If Serial is not initialized, initialize it
   if (!SERIAL_TO_USE)
     SERIAL_TO_USE.begin();
   SERIAL_TO_USE.println("FANApi GPIO init completed");
-}
-#define MEASURE_TIME_MSEC 1000
-#define MEASUREMENT_FREQ_TO_SECONDS_FACTOR 1000 / MEASURE_TIME_MSEC
-float measure_frequency(int gpio_pin) {
-  // Only the PWM B pins can be used as inputs.
-  assert(pwm_gpio_to_channel(gpio_pin) == PWM_CHAN_B);
-  uint slice_num = pwm_gpio_to_slice_num(gpio_pin);
-  pwm_config cfg = pwm_get_default_config();
-  pwm_config_set_clkdiv_mode(&cfg, PWM_DIV_B_RISING);
-  pwm_init(slice_num, &cfg, false);
-  gpio_set_function(gpio_pin, GPIO_FUNC_PWM);
-
-  pwm_set_enabled(slice_num, true);
-  // todo: implement timers instead of blocking sleep
-  sleep_ms(MEASURE_TIME_MSEC);
-  pwm_set_enabled(slice_num, false);
-  float input_signal_frequency =
-      float(pwm_get_counter(slice_num)) * MEASUREMENT_FREQ_TO_SECONDS_FACTOR;
-  return input_signal_frequency;
 }
 
 // Call this function with a frequency of 100kHz (every 10 microseconds) so it
@@ -118,18 +136,12 @@ void generate_pwm_cycle() {
     ulong time_now = micros() % 1000;
 
     for (auto &fan : FanArray) {
-//      SERIAL_TO_USE.printf("Generating PWM signal for FAN #%d", fan);
       // Check if output pin for fan1 should be high or low
-      if (time_now < fan.get_duty_cycle() * 1000.0) { // 10 us * 100 steps = 1000
+      if (time_now <
+          fan.get_duty_cycle() * 1000.0) { // 10 us * 100 steps = 1000
         gpio_put(fan.get_PWM_Control_Pin(), true);
-//        SERIAL_TO_USE.printf("time now is %d\r\n", time_now);
-//        SERIAL_TO_USE.printf("fan.get_duty_cycle() is %f\r\n", fan.get_duty_cycle());
-//        SERIAL_TO_USE.printf("(double)fan.get_duty_cycle() is %f\r\n", (double)fan.get_duty_cycle());
-//        SERIAL_TO_USE.printf("(double)fan.get_duty_cycle() * 1000UL is %f\r\n", (double)fan.get_duty_cycle() * 1000UL);
-//        SERIAL_TO_USE.printf("FAN #%d is pulled HIGH\r\n", fan);
       } else {
         gpio_put(fan.get_PWM_Control_Pin(), false);
-//        SERIAL_TO_USE.printf("FAN #%d is pulled LOW\r\n", fan);
       }
     }
   }
@@ -138,10 +150,7 @@ void generate_pwm_cycle() {
 // Updates RPM values for all the fans
 void update_rpm_all_fans() {
   for (auto &fan : FanArray) {
-    uint frequency = uint(measure_frequency(fan.get_RPM_Read_Pin()));
-    fan.set_rpm(frequency * HERTZ_TO_RPM_FACTOR);
-    SERIAL_TO_USE.printf("Fan %i: dc:%f RPM:%i\r\n", fan.get_id(),
-                         fan.get_duty_cycle(), fan.get_rpm());
+    fan.measure_frequency();
   }
 }
 
@@ -153,7 +162,10 @@ void set_all_fans_to(float duty_cycle) {
 
 void read_all_fans() {
   for (auto &fan : FanArray) {
-    SERIAL_TO_USE.printf("FAN #%i; Duty cycle: %.2f; RPM: %i \r\n",fan.get_id(), fan.get_duty_cycle(), fan.get_rpm());
+    SERIAL_TO_USE.printf(
+        "FAN #%i; on PWM:%2i RPM:%2i Duty cycle: %.2f; Slice# %d; RPM: %i \r\n",
+        fan.get_id(), fan.get_PWM_Control_Pin(), fan.get_RPM_Read_Pin(),
+        fan.get_duty_cycle(), fan.slice_num, fan.get_rpm());
   }
 }
 
