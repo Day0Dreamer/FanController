@@ -24,7 +24,7 @@ public:
   static void can_isr_routine();
   static ACAN2515* pCan;
 
-  void send_message(int id, uint8_t *data);
+  void send_message(int id, int64_t data);
 
   void init();
 

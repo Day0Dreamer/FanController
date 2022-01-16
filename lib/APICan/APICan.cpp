@@ -1,13 +1,11 @@
 #include "APICan.h"
+#include "ACAN2515.h"
 #include "Arduino.h"
 #include "SPI.h"
-#include "ACAN2515.h"
 
-ACAN2515* APICan::pCan = nullptr;
+ACAN2515 *APICan::pCan = nullptr;
 
-void APICan::can_isr_routine() {
-  pCan->isr();
-}
+void APICan::can_isr_routine() { pCan->isr(); }
 
 void APICan::setSPI(const byte sck, const byte mosi, const byte miso,
                     const byte cs) {
@@ -21,19 +19,22 @@ void APICan::setSPI(const byte sck, const byte mosi, const byte miso,
 }
 // works! wow O_o
 // constructor accepts CS and INT pin, forwards it to CAN constructor.
-APICan::APICan(byte CS_PIN, byte INT_PIN, uint32_t quartz_frequency, Print* print):
-    can(CS_PIN, SPI, INT_PIN), quartz_frequency(quartz_frequency), debugOutput{print}, int_pin{INT_PIN} {
+APICan::APICan(byte CS_PIN, byte INT_PIN, uint32_t quartz_frequency,
+               Print *print)
+    : can(CS_PIN, SPI, INT_PIN),
+      quartz_frequency(quartz_frequency), debugOutput{print}, int_pin{INT_PIN} {
   pCan = &can;
 }
 
-// interrupt pin wird nicht direkt in der method benötigt, alles schon initialisiert
-// wieso eigentlich hier quartz frequenz extra reingeben und nicht im konstruktor :D
-// ein relikt. ich habe alles mögliches ausprobiert.
-void APICan::init(){ //der fehler sollte weg sein
-  //hier kann man eigentlich can.begin() und so machen
+// interrupt pin wird nicht direkt in der method benötigt, alles schon
+// initialisiert wieso eigentlich hier quartz frequenz extra reingeben und nicht
+// im konstruktor :D ein relikt. ich habe alles mögliches ausprobiert.
+void APICan::init() { // der fehler sollte weg sein
+  // hier kann man eigentlich can.begin() und so machen
 }
 
-void APICan::configure_chip() { //hm meeh extra den Serial port als argument.. besser referenz im constructor
+void APICan::configure_chip() { // hm meeh extra den Serial port als argument..
+                                // besser referenz im constructor
 
   //--- Configure ACAN2515
   debugOutput->println("Configure ACAN2515");
@@ -41,11 +42,11 @@ void APICan::configure_chip() { //hm meeh extra den Serial port als argument.. b
                             125UL * 1000UL); // CAN bitrate 125 kb/s
   settings.mRequestedMode = ACAN2515Settings::NormalMode;
   uint16_t errorCode = 0;
-  if(int_pin == 255) {
+  if (int_pin == 255) {
     errorCode = can.begin(settings, nullptr);
   } else {
-      //falls interrupt pin benutzt wird
-      errorCode = can.begin(settings, &APICan::can_isr_routine);
+    // falls interrupt pin benutzt wird
+    errorCode = can.begin(settings, &APICan::can_isr_routine);
   }
   if (errorCode == 0) {
     debugOutput->print("Bit Rate prescaler: ");
@@ -76,29 +77,32 @@ void APICan::configure_chip() { //hm meeh extra den Serial port als argument.. b
 
 // APICan::~APICan() = default;
 
-void APICan::send_message(int id, uint8_t data[8]) {
+void APICan::send_message(int id, int64_t data) {
   can.poll();
   CANMessage frame{};
-  frame.id = id;   // id 0x000000
-  frame.ext = true; // not an extended frame
-  frame.len = 8;     // 8 user bytes
+  frame.id = id;    // id 0x000000
+  frame.ext = true; // extended frame?
+  frame.len = 8;    // 8 user bytes
   // Move all 8 bytes from input to the frame
-  for(auto i=0; i < 8; ++i){
-    frame.data[i] = data[i];
-  }
-//  if (gBlinkLedDate < millis()) {
-//    gBlinkLedDate += 200;
-    digitalWrite(LED_BUILTIN, 1);
-    const bool ok = can.tryToSend(frame);
+  frame.data_s64 = (int64_t)data;
+
+  //  if (gBlinkLedDate < millis()) {
+  //    gBlinkLedDate += 200;
+  digitalWrite(LED_BUILTIN, 1);
+  const bool ok = can.tryToSend(frame);
+  for (auto i = 0; i < 10; ++i) {
     if (ok) {
       gSentFrameCount += 1;
-      debugOutput->print("Sent from 2040 frame : #");
+      debugOutput->printf("Sent with ID:%d, payload %i, frame#:", frame.id,
+                          frame.data_s64);
       debugOutput->println(gSentFrameCount);
       digitalWrite(LED_BUILTIN, 0);
+      break;
     } else {
-      debugOutput->println("Send failure");
+      debugOutput->printf("Try#%2d Send failure", i+1);
     }
-//  }
+  }
+  //  }
 }
 
 void APICan::read_messages() {
