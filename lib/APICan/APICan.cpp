@@ -17,8 +17,7 @@ void APICan::setSPI(const byte sck, const byte mosi, const byte miso,
   //--- Begin SPI
   SPI.begin();
 }
-// works! wow O_o
-// constructor accepts CS and INT pin, forwards it to CAN constructor.
+
 APICan::APICan(byte CS_PIN, byte INT_PIN, uint32_t quartz_frequency,
                Print *print)
     : can(CS_PIN, SPI, INT_PIN),
@@ -26,15 +25,10 @@ APICan::APICan(byte CS_PIN, byte INT_PIN, uint32_t quartz_frequency,
   pCan = &can;
 }
 
-// interrupt pin wird nicht direkt in der method benötigt, alles schon
-// initialisiert wieso eigentlich hier quartz frequenz extra reingeben und nicht
-// im konstruktor :D ein relikt. ich habe alles mögliches ausprobiert.
-void APICan::init() { // der fehler sollte weg sein
-  // hier kann man eigentlich can.begin() und so machen
+void APICan::init() {
 }
 
-void APICan::configure_chip() { // hm meeh extra den Serial port als argument..
-                                // besser referenz im constructor
+int APICan::configure_chip() {
 
   //--- Configure ACAN2515
   debugOutput->println("Configure ACAN2515");
@@ -73,9 +67,8 @@ void APICan::configure_chip() { // hm meeh extra den Serial port als argument..
     debugOutput->print("Configuration error 0x");
     debugOutput->println(errorCode, HEX);
   }
+  return errorCode;
 }
-
-// APICan::~APICan() = default;
 
 void APICan::send_message(int id, int64_t data) {
   can.poll();
@@ -83,11 +76,8 @@ void APICan::send_message(int id, int64_t data) {
   frame.id = id;    // id 0x000000
   frame.ext = true; // extended frame?
   frame.len = 8;    // 8 user bytes
-  // Move all 8 bytes from input to the frame
   frame.data_s64 = (int64_t)data;
 
-  //  if (gBlinkLedDate < millis()) {
-  //    gBlinkLedDate += 200;
   digitalWrite(LED_BUILTIN, 1);
   const bool ok = can.tryToSend(frame);
   for (auto i = 0; i < 10; ++i) {
@@ -99,10 +89,9 @@ void APICan::send_message(int id, int64_t data) {
       digitalWrite(LED_BUILTIN, 0);
       break;
     } else {
-      debugOutput->printf("Try#%2d Send failure", i+1);
+      debugOutput->printf("Try#%2d Send failure\r\n", i+1);
     }
   }
-  //  }
 }
 
 void APICan::read_messages() {
@@ -123,3 +112,82 @@ void APICan::read_messages() {
     //        debugOutput->println("Can BUS is not available for reading");
   }
 }
+
+std::map<String, int> BusAddress::list_of_devices = {
+    {"fan", 0},
+    {"ac", 1},
+    {"generator", 2}
+};
+
+std::map<String, int> BusAddress::list_of_message_types = {
+    {"status_report", 0},
+    {"command", 1},
+    {"acknowledgement", 2},
+    {"placeholder", 3}
+};
+
+uint BusAddress::get_device_type_number(String device_name) {
+  for (const auto& [key, value] : this->list_of_devices) {
+     if (key == device_name) return value;
+  }
+  return -1;
+}
+std::map<String, std::any> BusAddress::split_address_in_parts(uint32_t address) {
+  uint32_t const mask_priority =          0b111'000000'000'000000'0000'00'00000;
+  uint32_t const mask_placeholder2 =      0b000'111111'000'000000'0000'00'00000;
+  uint32_t const mask_placeholder1 =      0b000'000000'111'000000'0000'00'00000;
+  uint32_t const mask_device_type =       0b000'000000'000'111111'0000'00'00000;
+  uint32_t const mask_device_index =      0b000'000000'000'000000'1111'00'00000;
+  uint32_t const mask_message_type =      0b000'000000'000'000000'0000'11'00000;
+  uint32_t const mask_message_id =        0b000'000000'000'000000'0000'00'11111;
+
+  return {
+    { "priority", address &mask_priority },
+    { "placeholder1", address & mask_placeholder1},
+    { "placeholder2", address & mask_placeholder2},
+    { "device_type", address & mask_device_type},
+    { "device_index", address & mask_device_index},
+    { "message_type", address & mask_message_type},
+    { "message_id", address & mask_message_id},
+  };
+}
+
+std::map<String, std::any> BusAddress::decode(uint address) {
+  std::map<String, std::any> address_parts = this->split_address_in_parts(address);
+  //  address_parts["priority"],
+  //  address_parts["placeholder1"],
+  //  address_parts["placeholder2"],
+  address_parts["device_type"] = this->get_device_type_name(address_parts["device_type"]);
+  //  address_parts["device_index"],
+  address_parts["message_type"] = this->get_message_type_name(address_parts["message_type"]);
+  //  address_parts["message_id"]
+
+  return address_parts;
+}
+
+// Can't figure out how to convert to string
+//String BusAddress::decode_as_string(uint address) {
+//  std::map<String, std::any> address_parts = this->decode(address);
+//  String result_string = "";
+//  for (auto &part : address_parts) {
+//    result_string = result_string + (String)part + ":";
+//    // todo: add skip for the last ":"
+//  }
+//  return result_string;
+//}
+
+String BusAddress::get_device_type_name(std::any device_number) {
+  for (auto const& [key, val] : this->list_of_devices) {
+    if (val == std::any_cast<int>(device_number)) {return key;}
+  }
+  return "";
+}
+
+String BusAddress::get_message_type_name(std::any message_number) {
+  for (auto const& [key, val] : this->list_of_message_types) {
+    if (val == std::any_cast<int>(message_number)) {return key;}
+  }
+  return "";
+}
+
+uint BusAddress::encode(String address) { return 0; }
