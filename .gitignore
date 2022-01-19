@@ -3,3 +3,5 @@ CMakeListsPrivate.txt
 cmake-build-*/ 
 .idea
 .vscode
+Arduino_IDE_build
+src/src.ino
