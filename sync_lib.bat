@@ -1,0 +1,1 @@
+XCOPY %1\lib C:\Users\poiso\Documents\Arduino\libraries /E /D /C /Y
